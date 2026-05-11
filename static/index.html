@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CadLex — Canadian Federal Legislation Research</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary:       #1e3a5f;
+      --primary-light: #2e4f7a;
+      --accent:        #2563eb;
+      --accent-hover:  #1d4ed8;
+      --bg:            #f1f5f9;
+      --surface:       #ffffff;
+      --border:        #e2e8f0;
+      --text:          #1e293b;
+      --text-muted:    #64748b;
+      --panel-w:       460px;
+      --header-h:      58px;
+    }
+
+    html, body { height: 100%; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+    /* ── Root layout ─────────────────────────────────────────────────── */
+    #app { display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── Chat panel ──────────────────────────────────────────────────── */
+    #chat-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    /* Header */
+    #chat-header {
+      height: var(--header-h);
+      background: var(--primary);
+      color: #fff;
+      display: flex; align-items: center;
+      padding: 0 24px;
+      gap: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+      z-index: 10;
+    }
+    #chat-header .brand { line-height: 1; }
+    #chat-header .brand-name { font-size: 22px; font-weight: 800; letter-spacing: -1px; }
+    #chat-header .brand-name span { color: #93c5fd; }
+    #chat-header .brand-sub { font-size: 11px; color: rgba(255,255,255,.55); margin-top: 3px; }
+
+    /* Messages */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 24px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    #messages::-webkit-scrollbar { width: 5px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Message rows */
+    .message { display: flex; gap: 10px; max-width: 820px; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.ai   { align-self: flex-start; }
+
+    .msg-avatar {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 700; flex-shrink: 0; margin-top: 2px;
+    }
+    .message.user .msg-avatar { background: var(--primary); color: #fff; font-size: 13px; }
+    .message.ai   .msg-avatar { background: #dbeafe; color: var(--accent); }
+
+    .msg-bubble {
+      padding: 13px 17px;
+      border-radius: 18px;
+      line-height: 1.65;
+      font-size: 14px;
+    }
+    .message.user .msg-bubble {
+      background: var(--primary);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .message.ai .msg-bubble {
+      background: var(--surface);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      min-width: 180px;
+    }
+
+    /* Markdown inside AI bubbles */
+    .msg-bubble p          { margin-bottom: 10px; }
+    .msg-bubble p:last-of-type { margin-bottom: 0; }
+    .msg-bubble strong     { font-weight: 600; }
+    .msg-bubble em         { font-style: italic; }
+    .msg-bubble ul, .msg-bubble ol { padding-left: 20px; margin-bottom: 10px; }
+    .msg-bubble li         { margin-bottom: 5px; }
+    .msg-bubble code       { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; font-family: 'Courier New', monospace; }
+    .msg-bubble h1,.msg-bubble h2,.msg-bubble h3 { font-weight: 700; margin: 14px 0 6px; }
+    .msg-bubble h1 { font-size: 17px; } .msg-bubble h2 { font-size: 15px; } .msg-bubble h3 { font-size: 14px; }
+    .msg-bubble blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+
+    /* Thinking dots */
+    .thinking { display: flex; gap: 5px; padding: 6px 2px; }
+    .thinking span {
+      width: 8px; height: 8px; border-radius: 50%; background: #93c5fd;
+      animation: pulse 1.3s infinite ease-in-out;
+    }
+    .thinking span:nth-child(2) { animation-delay: .2s; }
+    .thinking span:nth-child(3) { animation-delay: .4s; }
+    @keyframes pulse { 0%,80%,100% { transform: scale(.7); opacity:.4; } 40% { transform: scale(1); opacity:1; } }
+
+    /* Sub-queries hint */
+    .subq-note { font-size: 11.5px; color: var(--text-muted); font-style: italic; margin-bottom: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
+
+    /* Sources */
+    .msg-sources { margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--border); }
+    .sources-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); margin-bottom: 7px; }
+    .source-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .source-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px;
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 20px;
+      font-size: 12px; color: var(--accent); font-weight: 500;
+      cursor: pointer; transition: all .15s;
+    }
+    .source-tag:hover { background: #dbeafe; border-color: var(--accent); }
+    .source-tag .tag-ico { font-size: 12px; }
+
+    /* ── Input area ──────────────────────────────────────────────────── */
+    #input-area {
+      padding: 14px 24px 18px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .input-row { display: flex; gap: 10px; align-items: flex-end; max-width: 820px; }
+    #query-input {
+      flex: 1; padding: 12px 16px;
+      border: 1.5px solid var(--border); border-radius: 12px;
+      font-size: 14px; font-family: inherit; color: var(--text);
+      background: var(--bg); resize: none;
+      min-height: 48px; max-height: 160px; line-height: 1.55;
+      outline: none; transition: border-color .15s, background .15s;
+    }
+    #query-input:focus { border-color: var(--accent); background: #fff; }
+    #query-input::placeholder { color: var(--text-muted); }
+    #send-btn {
+      width: 48px; height: 48px; border-radius: 12px; border: none;
+      background: var(--accent); color: #fff;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background .15s;
+    }
+    #send-btn:hover:not(:disabled) { background: var(--accent-hover); }
+    #send-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    #send-btn svg { width: 20px; height: 20px; }
+    .input-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; padding-left: 2px; }
+
+    /* ── Welcome screen ──────────────────────────────────────────────── */
+    #welcome {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      flex: 1; padding: 40px 20px; text-align: center;
+      color: var(--text-muted);
+    }
+    #welcome .w-icon { font-size: 52px; margin-bottom: 18px; }
+    #welcome h2 { font-size: 24px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    #welcome p  { font-size: 14px; max-width: 400px; line-height: 1.65; margin-bottom: 28px; }
+    .examples { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 440px; }
+    .ex-btn {
+      padding: 12px 16px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 13px; color: var(--text); cursor: pointer;
+      text-align: left; display: flex; align-items: center; gap: 10px;
+      transition: all .15s;
+    }
+    .ex-btn:hover { border-color: var(--accent); color: var(--accent); background: #eff6ff; }
+    .ex-btn .ex-arr { color: var(--text-muted); margin-left: auto; font-size: 16px; }
+
+    /* ── Side panel ──────────────────────────────────────────────────── */
+    #side-panel {
+      width: var(--panel-w);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .3s ease;
+      overflow: hidden; flex-shrink: 0;
+    }
+    #side-panel.open { transform: translateX(0); }
+
+    /* Side header */
+    #side-header {
+      height: var(--header-h);
+      background: var(--primary); color: #fff;
+      display: flex; align-items: center;
+      padding: 0 16px; gap: 10px; flex-shrink: 0;
+    }
+    #side-title { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #side-close {
+      width: 32px; height: 32px; border: none;
+      background: rgba(255,255,255,.12); color: #fff;
+      border-radius: 8px; cursor: pointer; font-size: 20px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    #side-close:hover { background: rgba(255,255,255,.25); }
+
+    /* Search area */
+    #side-search-area {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc; flex-shrink: 0;
+    }
+    .search-row { display: flex; gap: 8px; }
+    #side-search-input {
+      flex: 1; padding: 9px 12px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 13px; font-family: inherit; outline: none;
+      background: #fff; transition: border-color .15s;
+    }
+    #side-search-input:focus { border-color: var(--accent); }
+    #side-search-btn {
+      padding: 9px 14px; background: var(--accent); color: #fff;
+      border: none; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+      transition: background .15s;
+    }
+    #side-search-btn:hover { background: var(--accent-hover); }
+    .search-types { display: flex; gap: 4px; margin-top: 8px; }
+    .stype-btn {
+      padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+      background: #fff; font-size: 11.5px; cursor: pointer;
+      font-weight: 500; color: var(--text-muted); transition: all .15s;
+    }
+    .stype-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* Side content */
+    #side-content { flex: 1; overflow-y: auto; padding: 16px; }
+    #side-content::-webkit-scrollbar { width: 5px; }
+    #side-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Empty state */
+    .side-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); text-align: center; padding: 24px; gap: 10px; }
+    .side-empty-icon { font-size: 40px; }
+    .side-empty p { font-size: 13px; line-height: 1.55; max-width: 300px; }
+
+    .side-loading { display: flex; align-items: center; justify-content: center; padding: 48px; color: var(--text-muted); gap: 10px; font-size: 13px; }
+
+    /* Law view */
+    .law-header { margin-bottom: 14px; }
+    .law-badge { display: inline-block; padding: 3px 9px; border-radius: 4px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; background: var(--primary); color: #fff; margin-bottom: 7px; }
+    .law-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 5px; line-height: 1.3; }
+    .law-ementa { font-size: 13px; color: var(--text-muted); line-height: 1.55; font-style: italic; }
+    .law-meta { display: flex; gap: 14px; margin-top: 8px; font-size: 11.5px; color: var(--text-muted); }
+    .law-meta a { color: var(--accent); text-decoration: none; }
+    .law-meta a:hover { text-decoration: underline; }
+    .law-divider { border: none; border-top: 1px solid var(--border); margin: 13px 0; }
+
+    /* Section TOC */
+    .art-toc-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); margin-bottom: 6px; }
+    .art-toc { display: flex; flex-wrap: wrap; gap: 4px; max-height: 88px; overflow-y: auto; margin-bottom: 14px; }
+    .art-toc::-webkit-scrollbar { width: 4px; }
+    .art-toc::-webkit-scrollbar-thumb { background: var(--border); }
+    .art-jump {
+      padding: 3px 8px; background: #f1f5f9; border: 1px solid var(--border);
+      border-radius: 5px; font-size: 11px; cursor: pointer; color: var(--text);
+      transition: all .15s;
+    }
+    .art-jump:hover { background: #dbeafe; border-color: var(--accent); color: var(--accent); }
+
+    /* Law text */
+    #law-text {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 13.5px; line-height: 1.85;
+      color: var(--text);
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .art-block { margin-bottom: 6px; transition: background .5s; }
+    .art-block.flash { background: #dbeafe; border-radius: 6px; transition: background 0s; }
+    .art-num { color: var(--accent); font-weight: 700; }
+
+    /* Search results */
+    .search-result {
+      padding: 11px 13px; border: 1px solid var(--border); border-radius: 9px;
+      margin-bottom: 8px; cursor: pointer; transition: all .15s;
+    }
+    .search-result:hover { border-color: var(--accent); background: #eff6ff; }
+    .sr-badge { display: inline-block; padding: 2px 7px; background: var(--primary); color: #fff; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+    .sr-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+    .sr-ementa { font-size: 12px; color: var(--text-muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .side-error { padding: 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #dc2626; font-size: 13px; }
+    .results-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+
+    /* Responsive: side panel as overlay on small screens */
+    @media (max-width: 860px) {
+      :root { --panel-w: min(460px, 100vw); }
+      #side-panel.open {
+        position: fixed; top: 0; right: 0; height: 100vh;
+        z-index: 200; box-shadow: -6px 0 24px rgba(0,0,0,.18);
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Chat panel ───────────────────────────────────────────────────── -->
+  <div id="chat-panel">
+
+    <header id="chat-header">
+      <div class="brand">
+        <div class="brand-name">Cad<span>Lex</span></div>
+        <div class="brand-sub">Canadian Federal Legislation Research</div>
+      </div>
+    </header>
+
+    <div id="messages">
+      <div id="welcome">
+        <div class="w-icon">⚖️</div>
+        <h2>Welcome to CadLex</h2>
+        <p>Search Canadian federal legislation using AI. Ask a question and receive answers with precise citations to sections and Acts.</p>
+        <div class="examples">
+          <button class="ex-btn" onclick="useExample(this)">
+            <span>What rights are protected under the Canadian Charter of Rights and Freedoms?</span>
+            <span class="ex-arr">→</span>
+          </button>
+          <button class="ex-btn" onclick="useExample(this)">
+            <span>What constitutes theft or fraud under the Criminal Code?</span>
+            <span class="ex-arr">→</span>
+          </button>
+          <button class="ex-btn" onclick="useExample(this)">
+            <span>What are the employment standards under the Canada Labour Code?</span>
+            <span class="ex-arr">→</span>
+          </button>
+          <button class="ex-btn" onclick="useExample(this)">
+            <span>What privacy rights are protected under PIPEDA?</span>
+            <span class="ex-arr">→</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div class="input-row">
+        <textarea
+          id="query-input"
+          placeholder="Ask a legal question about Canadian federal law..."
+          rows="1"
+          onkeydown="handleKeydown(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter to send · Shift+Enter for new line</div>
+    </div>
+
+  </div>
+
+  <!-- ── Side panel ───────────────────────────────────────────────────── -->
+  <div id="side-panel">
+
+    <div id="side-header">
+      <span id="side-title">Legislation</span>
+      <button id="side-close" onclick="closeSide()" title="Close">×</button>
+    </div>
+
+    <div id="side-search-area">
+      <div class="search-row">
+        <input
+          type="text"
+          id="side-search-input"
+          placeholder="Search legislation..."
+          onkeydown="if(event.key==='Enter') doSearch()"
+        >
+        <button id="side-search-btn" onclick="doSearch()">Search</button>
+      </div>
+      <div class="search-types">
+        <button class="stype-btn active" data-tipo="keyword" onclick="setSearchType(this)">Keyword</button>
+        <button class="stype-btn" data-tipo="numero"  onclick="setSearchType(this)">Act No.</button>
+        <button class="stype-btn" data-tipo="artigo"  onclick="setSearchType(this)">Section No.</button>
+      </div>
+    </div>
+
+    <div id="side-content">
+      <div class="side-empty">
+        <div class="side-empty-icon">📋</div>
+        <p>Click a source in AI responses to view the full text, or use the search above.</p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+<script>
+// ── marked config ─────────────────────────────────────────────────────────────
+marked.setOptions({ breaks: true, gfm: true });
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let sending    = false;
+let searchType = 'keyword';
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) { return String(s || '').replace(/'/g,"\\'"); }
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+function handleKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function useExample(btn) {
+  const text = btn.querySelector('span').textContent;
+  const inp  = document.getElementById('query-input');
+  inp.value  = text;
+  autoResize(inp);
+  inp.focus();
+}
+function scrollBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+function labelForMeta(m) {
+  const map = {
+    'ACT':   `Act ${m.act_id}/${m.year}`,
+    'REG':   `Reg. ${m.act_id}/${m.year}`,
+    'CONST': `Const. ${m.act_id}`,
+  };
+  return map[m.type] || `${m.type} ${m.act_id}/${m.year}`;
+}
+function fullLabel(type, act_id, year) {
+  const map = {
+    'ACT':   `Act ${act_id} (${year})`,
+    'REG':   `Regulation ${act_id} (${year})`,
+    'CONST': `Constitutional Document ${act_id}`,
+  };
+  return map[type] || `${type} ${act_id}/${year}`;
+}
+
+// ── chat ──────────────────────────────────────────────────────────────────────
+async function sendMessage() {
+  if (sending) return;
+  const inp  = document.getElementById('query-input');
+  const text = inp.value.trim();
+  if (!text) return;
+
+  inp.value = '';
+  inp.style.height = 'auto';
+
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  appendUser(text);
+  const ctrl = appendAI();
+
+  sending = true;
+  document.getElementById('send-btn').disabled = true;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: text }),
+    });
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', fullText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        let d; try { d = JSON.parse(part.slice(6)); } catch { continue; }
+        if      (d.type === 'subqueries') ctrl.setSubqueries(d.queries);
+        else if (d.type === 'token')      { fullText += d.text; ctrl.updateText(fullText); }
+        else if (d.type === 'sources')    ctrl.setSources(d.normas);
+        else if (d.type === 'done')       ctrl.done();
+      }
+    }
+  } catch (e) {
+    ctrl.setError(e.message);
+  } finally {
+    sending = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('query-input').focus();
+  }
+}
+
+function appendUser(text) {
+  const msgs = document.getElementById('messages');
+  const div  = document.createElement('div');
+  div.className = 'message user';
+  div.innerHTML = `<div class="msg-avatar">ME</div><div class="msg-bubble">${esc(text)}</div>`;
+  msgs.appendChild(div);
+  scrollBottom();
+}
+
+function appendAI() {
+  const msgs   = document.getElementById('messages');
+  const div    = document.createElement('div');
+  div.className = 'message ai';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+
+  const dots = document.createElement('div');
+  dots.className = 'thinking';
+  dots.innerHTML  = '<span></span><span></span><span></span>';
+  bubble.appendChild(dots);
+
+  div.innerHTML = '<div class="msg-avatar">⚖</div>';
+  div.appendChild(bubble);
+  msgs.appendChild(div);
+  scrollBottom();
+
+  let subqEl = null, textEl = null, srcEl = null;
+
+  return {
+    setSubqueries(qs) {
+      if (dots.parentNode) dots.remove();
+      if (!subqEl) { subqEl = document.createElement('div'); subqEl.className = 'subq-note'; bubble.prepend(subqEl); }
+      subqEl.textContent = `Searching: ${qs.join(' · ')}`;
+    },
+    updateText(t) {
+      if (dots.parentNode) dots.remove();
+      if (!textEl) { textEl = document.createElement('div'); bubble.appendChild(textEl); }
+      textEl.innerHTML = marked.parse(t);
+      scrollBottom();
+    },
+    setSources(normas) {
+      if (srcEl || !normas.length) return;
+      srcEl = document.createElement('div');
+      srcEl.className = 'msg-sources';
+      srcEl.innerHTML = `<div class="sources-label">Sources (${normas.length})</div><div class="source-tags"></div>`;
+      const tags = srcEl.querySelector('.source-tags');
+      normas.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = 'source-tag';
+        btn.title = m.summary || m.identifier;
+        btn.innerHTML = `<span class="tag-ico">📄</span>${labelForMeta(m)}`;
+        btn.addEventListener('click', () => openLaw(m.identifier));
+        tags.appendChild(btn);
+      });
+      bubble.appendChild(srcEl);
+      scrollBottom();
+    },
+    done()         { if (dots.parentNode) dots.remove(); if (subqEl) subqEl.remove(); },
+    setError(msg)  { if (dots.parentNode) dots.remove(); bubble.innerHTML = `<span style="color:#dc2626">Error: ${esc(msg)}</span>`; },
+  };
+}
+
+// ── side panel ────────────────────────────────────────────────────────────────
+function openSide()  { document.getElementById('side-panel').classList.add('open'); }
+function closeSide() { document.getElementById('side-panel').classList.remove('open'); }
+
+async function openLaw(identifier) {
+  openSide();
+  document.getElementById('side-title').textContent = identifier;
+  const content = document.getElementById('side-content');
+  content.innerHTML = '<div class="side-loading">⏳ Loading...</div>';
+  try {
+    const res = await fetch(`/api/norma/${encodeURIComponent(identifier)}`);
+    if (!res.ok) throw new Error('Record not found');
+    renderLaw(await res.json());
+  } catch (e) {
+    content.innerHTML = `<div class="side-error">Error loading: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderLaw(law) {
+  const content = document.getElementById('side-content');
+  // Use title if available, otherwise build a label from type/act_id/year
+  const title = law.title || fullLabel(law.type, law.act_id, law.year);
+  document.getElementById('side-title').textContent = title;
+
+  const articles = parseArticles(law.text || '');
+
+  let tocHtml = '';
+  if (articles.length > 1) {
+    const jumps = articles.map(a => `<span class="art-jump" onclick="jumpTo('${escAttr(a.id)}')">${esc(a.label)}</span>`).join('');
+    tocHtml = `<div class="art-toc-label">Sections (${articles.length})</div><div class="art-toc">${jumps}</div>`;
+  }
+
+  const bodyHtml = articles.length
+    ? articles.map(a => `<div class="art-block" id="${esc(a.id)}">${a.html}</div>`).join('')
+    : `<div>${highlightArts(esc(law.text || '(text not available)'))}</div>`;
+
+  content.innerHTML = `
+    <div class="law-header">
+      <div class="law-badge">${esc(law.type)}</div>
+      <div class="law-title">${esc(title)}</div>
+      ${law.summary && law.summary !== title ? `<div class="law-ementa">${esc(law.summary)}</div>` : ''}
+      <div class="law-meta">
+        ${law.year ? `<span>Year: ${esc(String(law.year))}</span>` : ''}
+        ${law.url ? `<a href="${esc(law.url)}" target="_blank" rel="noopener noreferrer">View original ↗</a>` : ''}
+      </div>
+    </div>
+    <hr class="law-divider">
+    ${tocHtml}
+    <div id="law-text">${bodyHtml}</div>
+  `;
+}
+
+function parseArticles(text) {
+  if (!text) return [];
+  // Split on Canadian section numbers: a line beginning with a number followed by
+  // an uppercase letter or opening parenthesis — e.g. "7 Everyone has the right..."
+  const parts = text.split(/(?=(?:^|\n)\s*\d+(?:\.\d+)?\s+[A-Z(])/m);
+  const out = [];
+  parts.forEach((part, i) => {
+    const t = part.trim();
+    if (!t) return;
+    const m = t.match(/^(\d+(?:\.\d+)?)\s+/);
+    if (m) {
+      const num = m[1];
+      const id  = `sec-${num.replace('.', '-')}`;
+      out.push({ id, label: `s. ${num}`, html: highlightArts(esc(t)) });
+    } else if (i === 0) {
+      out.push({ id: 'preamble', label: 'Preamble', html: highlightArts(esc(t)) });
+    }
+  });
+  return out;
+}
+
+function highlightArts(html) {
+  // Highlight section references like "s. 7" or standalone section numbers at line start
+  return html
+    .replace(/(s\.\s*\d+(?:\.\d+)?)/g, '<span class="art-num">$1</span>')
+    .replace(/((?:^|\n)\s*)(\d+(?:\.\d+)?(?=\s+[A-Z(]))/gm, '$1<span class="art-num">$2</span>');
+}
+
+function jumpTo(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 900);
+}
+
+// ── search ────────────────────────────────────────────────────────────────────
+function setSearchType(btn) {
+  document.querySelectorAll('.stype-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  searchType = btn.dataset.tipo;
+  const ph = {
+    keyword: 'e.g. privacy, employment, charter...',
+    numero:  'e.g. C-46 or A-1',
+    artigo:  'e.g. 7 or 322',
+  };
+  document.getElementById('side-search-input').placeholder = ph[searchType];
+}
+
+async function doSearch() {
+  const q = document.getElementById('side-search-input').value.trim();
+  if (!q) return;
+
+  openSide();
+  document.getElementById('side-title').textContent = 'Search results';
+  const content = document.getElementById('side-content');
+  content.innerHTML = '<div class="side-loading">🔍 Searching...</div>';
+
+  try {
+    const params = new URLSearchParams({ q, tipo: searchType });
+    const res    = await fetch(`/api/search?${params}`);
+    const data   = await res.json();
+
+    if (!data.length) {
+      content.innerHTML = `<div class="side-empty"><div class="side-empty-icon">🔍</div><p>No results for <strong>"${esc(q)}"</strong>.</p></div>`;
+      return;
+    }
+
+    const items = data.map(r => `
+      <div class="search-result" onclick="openLaw('${escAttr(r.identifier)}')">
+        <div class="sr-badge">${esc(r.type)}</div>
+        <div class="sr-title">${esc(r.title || fullLabel(r.type, r.act_id, r.year))}</div>
+        ${r.summary && r.summary !== r.title ? `<div class="sr-ementa">${esc(r.summary)}</div>` : ''}
+      </div>
+    `).join('');
+
+    content.innerHTML = `<div class="results-meta">${data.length} result${data.length !== 1 ? 's' : ''} for "${esc(q)}"</div>${items}`;
+  } catch (e) {
+    content.innerHTML = `<div class="side-error">Search error: ${esc(e.message)}</div>`;
+  }
+}
+</script>
+</body>
+</html>
